@@ -119,7 +119,7 @@ def train(opt):
         optimizer = optim.Adadelta(filtered_parameters, lr=opt.lr, rho=opt.rho, eps=opt.eps)
     print("Optimizer:")
     print(optimizer)
-    scheduler = CosineAnnealingLR(optimizer, T_max=opt.num_iter)
+    scheduler = CosineAnnealingLR(optimizer, T_max=opt.num_iter, eta_min=1e-6)
 
     """ final options """
     # print(opt)
