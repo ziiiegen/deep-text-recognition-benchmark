@@ -6,6 +6,7 @@ import string
 import argparse
 
 import torch
+from torch.optim.lr_scheduler import CosineAnnealingLR
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 import torch.optim as optim
@@ -112,10 +113,13 @@ def train(opt):
     # setup optimizer
     if opt.adam:
         optimizer = optim.Adam(filtered_parameters, lr=opt.lr, betas=(opt.beta1, 0.999))
+    elif opt.adamW:
+        optimizer = optim.AdamW(filtered_parameters, lr=opt.lr, betas=(opt.beta1, 0.999), weight_decay=1e-4)
     else:
         optimizer = optim.Adadelta(filtered_parameters, lr=opt.lr, rho=opt.rho, eps=opt.eps)
     print("Optimizer:")
     print(optimizer)
+    scheduler = CosineAnnealingLR(optimizer, T_max=opt.num_iter)
 
     """ final options """
     # print(opt)
@@ -168,6 +172,7 @@ def train(opt):
         cost.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), opt.grad_clip)  # gradient clipping with 5 (Default)
         optimizer.step()
+        scheduler.step()
 
         loss_avg.add(cost)
 

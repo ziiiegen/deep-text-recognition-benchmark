@@ -5,12 +5,14 @@ import six
 import math
 import lmdb
 import torch
+import cv2
 
 from natsort import natsorted
 from PIL import Image
 import numpy as np
+import albumentations as A
 from torch.utils.data import Dataset, ConcatDataset, Subset
-from torch._utils import _accumulate
+from itertools import accumulate as _accumulate
 import torchvision.transforms as transforms
 
 
@@ -30,7 +32,7 @@ class Batch_Balanced_Dataset(object):
         log.write(f'dataset_root: {opt.train_data}\nopt.select_data: {opt.select_data}\nopt.batch_ratio: {opt.batch_ratio}\n')
         assert len(opt.select_data) == len(opt.batch_ratio)
 
-        _AlignCollate = AlignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio_with_pad=opt.PAD)
+        _AlignCollate = AlignCollate(imgH=opt.imgH, imgW=opt.imgW, keep_ratio_with_pad=opt.PAD, is_train=True)
         self.data_loader_list = []
         self.dataloader_iter_list = []
         batch_size_list = []
@@ -289,14 +291,54 @@ class NormalizePAD(object):
 
 class AlignCollate(object):
 
-    def __init__(self, imgH=32, imgW=100, keep_ratio_with_pad=False):
+    def __init__(self, imgH=32, imgW=100, keep_ratio_with_pad=False, is_train=False):
         self.imgH = imgH
         self.imgW = imgW
         self.keep_ratio_with_pad = keep_ratio_with_pad
+        self.is_train = is_train
 
-    def __call__(self, batch):
+        # ДОБАВЛЕН пайплайн Albumentations
+        if self.is_train:
+            self.transform = A.Compose([
+                # Небольшие повороты (TPS выровняет остальное)
+                A.Rotate(limit=45, p=0.4, border_mode=cv2.BORDER_CONSTANT, value=255),
+                
+                # Имитация плохой камеры / расфокуса
+                A.OneOf([
+                    A.GaussianBlur(blur_limit=3, p=1.0),
+                    A.MotionBlur(blur_limit=3, p=1.0),
+                ], p=0.3),
+                
+                # Шум сенсора
+                A.GaussNoise(var_limit=(2.0, 10.0), p=0.25),
+                
+                # Искажения перспективы (сдвиг камеры)
+                A.Perspective(scale=(0.01, 0.08), p=0.3, pad_mode=cv2.BORDER_CONSTANT, pad_val=255),
+                
+                # Яркость и контраст
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.4),
+            ])
+
+def __call__(self, batch):
         batch = filter(lambda x: x is not None, batch)
         images, labels = zip(*batch)
+        augmented_images = []
+        for image in images:
+            # Проверяем, находимся ли мы в режиме тренировки и есть ли пайплайн
+            if getattr(self, 'is_train', False) and hasattr(self, 'transform'):
+                # 1. Переводим PIL Image в NumPy
+                img_np = np.array(image)
+                
+                # 2. Прогоняем через Albumentations
+                aug_result = self.transform(image=img_np)
+                img_np = aug_result['image']
+                
+                # 3. Возвращаем обратно в формат PIL Image
+                image = Image.fromarray(img_np)
+            
+            augmented_images.append(image)
+            
+        images = augmented_images
 
         if self.keep_ratio_with_pad:  # same concept with 'Rosetta' paper
             resized_max_w = self.imgW
