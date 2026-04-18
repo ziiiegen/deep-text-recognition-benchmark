@@ -319,53 +319,53 @@ class AlignCollate(object):
                 A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.4),
             ])
 
-def __call__(self, batch):
-        batch = filter(lambda x: x is not None, batch)
-        images, labels = zip(*batch)
-        augmented_images = []
-        for image in images:
-            # Проверяем, находимся ли мы в режиме тренировки и есть ли пайплайн
-            if getattr(self, 'is_train', False) and hasattr(self, 'transform'):
-                # 1. Переводим PIL Image в NumPy
-                img_np = np.array(image)
-                
-                # 2. Прогоняем через Albumentations
-                aug_result = self.transform(image=img_np)
-                img_np = aug_result['image']
-                
-                # 3. Возвращаем обратно в формат PIL Image
-                image = Image.fromarray(img_np)
-            
-            augmented_images.append(image)
-            
-        images = augmented_images
-
-        if self.keep_ratio_with_pad:  # same concept with 'Rosetta' paper
-            resized_max_w = self.imgW
-            input_channel = 3 if images[0].mode == 'RGB' else 1
-            transform = NormalizePAD((input_channel, self.imgH, resized_max_w))
-
-            resized_images = []
+    def __call__(self, batch):
+            batch = filter(lambda x: x is not None, batch)
+            images, labels = zip(*batch)
+            augmented_images = []
             for image in images:
-                w, h = image.size
-                ratio = w / float(h)
-                if math.ceil(self.imgH * ratio) > self.imgW:
-                    resized_w = self.imgW
-                else:
-                    resized_w = math.ceil(self.imgH * ratio)
+                # Проверяем, находимся ли мы в режиме тренировки и есть ли пайплайн
+                if getattr(self, 'is_train', False) and hasattr(self, 'transform'):
+                    # 1. Переводим PIL Image в NumPy
+                    img_np = np.array(image)
+                    
+                    # 2. Прогоняем через Albumentations
+                    aug_result = self.transform(image=img_np)
+                    img_np = aug_result['image']
+                    
+                    # 3. Возвращаем обратно в формат PIL Image
+                    image = Image.fromarray(img_np)
+                
+                augmented_images.append(image)
+                
+            images = augmented_images
 
-                resized_image = image.resize((resized_w, self.imgH), Image.BICUBIC)
-                resized_images.append(transform(resized_image))
-                # resized_image.save('./image_test/%d_test.jpg' % w)
+            if self.keep_ratio_with_pad:  # same concept with 'Rosetta' paper
+                resized_max_w = self.imgW
+                input_channel = 3 if images[0].mode == 'RGB' else 1
+                transform = NormalizePAD((input_channel, self.imgH, resized_max_w))
 
-            image_tensors = torch.cat([t.unsqueeze(0) for t in resized_images], 0)
+                resized_images = []
+                for image in images:
+                    w, h = image.size
+                    ratio = w / float(h)
+                    if math.ceil(self.imgH * ratio) > self.imgW:
+                        resized_w = self.imgW
+                    else:
+                        resized_w = math.ceil(self.imgH * ratio)
 
-        else:
-            transform = ResizeNormalize((self.imgW, self.imgH))
-            image_tensors = [transform(image) for image in images]
-            image_tensors = torch.cat([t.unsqueeze(0) for t in image_tensors], 0)
+                    resized_image = image.resize((resized_w, self.imgH), Image.BICUBIC)
+                    resized_images.append(transform(resized_image))
+                    # resized_image.save('./image_test/%d_test.jpg' % w)
 
-        return image_tensors, labels
+                image_tensors = torch.cat([t.unsqueeze(0) for t in resized_images], 0)
+
+            else:
+                transform = ResizeNormalize((self.imgW, self.imgH))
+                image_tensors = [transform(image) for image in images]
+                image_tensors = torch.cat([t.unsqueeze(0) for t in image_tensors], 0)
+
+            return image_tensors, labels
 
 
 def tensor2im(image_tensor, imtype=np.uint8):
