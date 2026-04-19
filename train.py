@@ -150,6 +150,7 @@ def train(opt):
         pbar.update(1)
         if pbar.n >= opt.valInterval:
             pbar.reset()
+            print('\n')
         # train part
         image_tensors, labels = train_dataset.get_batch()
         image = image_tensors.to(device)
