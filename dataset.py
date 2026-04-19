@@ -300,23 +300,32 @@ class AlignCollate(object):
         # ДОБАВЛЕН пайплайн Albumentations
         if self.is_train:
             self.transform = A.Compose([
-                # Небольшие повороты (TPS выровняет остальное)
-                A.Rotate(limit=45, p=0.4, border_mode=cv2.BORDER_CONSTANT, value=255),
+                # Небольшие повороты 
+                A.SafeRotate(
+                    limit=30, 
+                    border_mode=cv2.BORDER_REPLICATE, 
+                    p=0.3
+                ),
                 
-                # Имитация плохой камеры / расфокуса
+                # Размытие
                 A.OneOf([
                     A.GaussianBlur(blur_limit=3, p=1.0),
-                    A.MotionBlur(blur_limit=3, p=1.0),
-                ], p=0.3),
+                    A.GaussianBlur(blur_limit=5, p=0.05),
+                ], p=0.2),
                 
-                # Шум сенсора
-                A.GaussNoise(var_limit=(2.0, 10.0), p=0.25),
+                # Шум
+                A.GaussNoise(std_range=(0.01, 0.02), mean_range=(0, 0), p=0.4),
                 
-                # Искажения перспективы (сдвиг камеры)
-                A.Perspective(scale=(0.01, 0.08), p=0.3, pad_mode=cv2.BORDER_CONSTANT, pad_val=255),
+                # Искажения перспективы 
+                A.Perspective(scale=(0.01, 0.05),
+                              fit_output=True, 
+                              border_mode=cv2.BORDER_REPLICATE, 
+                              p=0.5),
                 
                 # Яркость и контраст
-                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.4),
+                A.RandomBrightnessContrast(brightness_limit=0.05, contrast_limit=0.1, p=0.7),
+
+                A.Sharpen(alpha=(0.1, 0.2), lightness=(0.1, 1), kernel_size=3, p=0.2),
             ])
 
     def __call__(self, batch):
