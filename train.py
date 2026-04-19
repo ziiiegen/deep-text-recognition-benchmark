@@ -146,7 +146,7 @@ def train(opt):
     iteration = start_iter
 
     while(True):
-        pbar = tqdm(total=opt.valInterval, desc="Manual Validation")
+        pbar = tqdm(total=opt.valInterval, desc="Train model")
         pbar.update(1)
         # train part
         image_tensors, labels = train_dataset.get_batch()
