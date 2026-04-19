@@ -145,9 +145,11 @@ def train(opt):
     best_norm_ED = -1
     iteration = start_iter
 
+    pbar = tqdm(total=opt.valInterval, desc="Train model")
     while(True):
-        pbar = tqdm(total=opt.valInterval, desc="Train model")
         pbar.update(1)
+        if pbar.n >= opt.valInterval:
+            pbar.reset()
         # train part
         image_tensors, labels = train_dataset.get_batch()
         image = image_tensors.to(device)
