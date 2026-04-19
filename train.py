@@ -7,6 +7,7 @@ import argparse
 
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
+from tqdm import tqdm
 import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 import torch.optim as optim
@@ -145,6 +146,8 @@ def train(opt):
     iteration = start_iter
 
     while(True):
+        pbar = tqdm(total=opt.valInterval, desc="Manual Validation")
+        pbar.update(1)
         # train part
         image_tensors, labels = train_dataset.get_batch()
         image = image_tensors.to(device)
