@@ -300,12 +300,20 @@ class AlignCollate(object):
         # ДОБАВЛЕН пайплайн Albumentations
         if self.is_train:
             self.transform = A.Compose([
-                # Небольшие повороты 
-                A.SafeRotate(
-                    limit=30, 
-                    border_mode=cv2.BORDER_REPLICATE, 
-                    p=0.3
-                ),
+                # Небольшие повороты
+                A.OneOf([
+                    A.SafeRotate(
+                        limit=45, 
+                        border_mode=cv2.BORDER_REPLICATE, 
+                        p=1
+                    ),
+                    A.SafeRotate(
+                        limit=45, 
+                        border_mode=cv2.BORDER_CONSTANT,
+                        fill = (255, 255, 255),
+                        p=1
+                    ),
+                ], p=0.4),
                 
                 # Размытие
                 A.OneOf([
@@ -317,15 +325,31 @@ class AlignCollate(object):
                 A.GaussNoise(std_range=(0.01, 0.02), mean_range=(0, 0), p=0.4),
                 
                 # Искажения перспективы 
-                A.Perspective(scale=(0.01, 0.05),
-                              fit_output=True, 
-                              border_mode=cv2.BORDER_REPLICATE, 
-                              p=0.5),
+                A.OneOf([
+                    A.Perspective(scale=(0.01, 0.1),
+                                fit_output=True, 
+                                border_mode=cv2.BORDER_REPLICATE, 
+                                p=1),
                 
+                    A.Perspective(scale=(0.01, 0.1),
+                                fit_output=True, 
+                                border_mode= cv2.BORDER_CONSTANT,
+                                fill = (255, 255, 255),
+                                p=1),
+                ], p=0.5),
+
                 # Яркость и контраст
                 A.RandomBrightnessContrast(brightness_limit=0.05, contrast_limit=0.1, p=0.7),
 
                 A.Sharpen(alpha=(0.1, 0.2), lightness=(0.1, 1), kernel_size=3, p=0.2),
+
+                A.CoarseDropout(
+                    num_holes_range = (1, 2),
+                    hole_height_range = (0.1, 0.4),
+                    hole_width_range = (0.01, 0.1),
+                    fill = "random_uniform",
+                    p = 0.25
+                ),
             ])
 
     def __call__(self, batch):
