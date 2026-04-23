@@ -44,7 +44,7 @@ class Model(nn.Module):
             self.FeatureExtraction = RCNN_FeatureExtractor(opt.input_channel, opt.output_channel)
         elif opt.FeatureExtraction == 'ResNet':
             self.FeatureExtraction = ResNet_FeatureExtractor(opt.input_channel, opt.output_channel)
-        if opt.FeatureExtraction == 'ResNetCE':
+        elif opt.FeatureExtraction == 'ResNetCE':
             self.FeatureExtraction = ResNet_FeatureExtractor_SE(opt.input_channel, opt.output_channel)
         else:
             raise Exception('No FeatureExtraction module specified')
