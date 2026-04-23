@@ -61,6 +61,21 @@ class ResNet_FeatureExtractor(nn.Module):
     def forward(self, input):
         return self.ConvNet(input)
 
+class ResNet_FeatureExtractor_SE(nn.Module):
+    def __init__(self, input_channel, output_channel=512):
+        super().__init__()
+        self.ConvNet = ResNetCE(
+            input_channel=input_channel,
+            output_channel=output_channel,
+            layers=(1, 2, 5, 3),   # можно менять
+            block=BasicBlockSE,
+            se_reduction=16,
+            dropout=0.05
+        )
+
+    def forward(self, x):
+        return self.ConvNet(x)
+
 
 # For Gated RCNN
 class GRCL(nn.Module):
@@ -242,5 +257,212 @@ class ResNet(nn.Module):
         x = self.conv4_2(x)
         x = self.bn4_2(x)
         x = self.relu(x)
+
+        return x
+
+class SEBlock(nn.Module):
+    def __init__(self, channels, reduction=16):
+        super().__init__()
+        hidden = max(channels // reduction, 8)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Conv2d(channels, hidden, kernel_size=1, bias=True)
+        self.act = nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(hidden, channels, kernel_size=1, bias=True)
+        self.gate = nn.Sigmoid()
+
+    def forward(self, x):
+        s = self.pool(x)
+        s = self.fc1(s)
+        s = self.act(s)
+        s = self.fc2(s)
+        s = self.gate(s)
+        return x * s
+    
+class BasicBlockSE(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, se_reduction=16, dropout=0.0):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(
+            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.act1 = nn.ReLU(inplace=True)
+
+        self.conv2 = nn.Conv2d(
+            planes, planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.se = SEBlock(planes, reduction=se_reduction)
+        self.downsample = downsample
+        self.act2 = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(dropout) if dropout > 0 else nn.Identity()
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.act1(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.se(out)
+        out = self.dropout(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out = out + identity
+        out = self.act2(out)
+        return out
+
+class ConvBNAct(nn.Module):
+    def __init__(self, in_ch, out_ch, kernel_size=3, stride=1, padding=1):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, kernel_size, stride=stride, padding=padding, bias=False),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+class ResNetCE(nn.Module):
+    """
+    Улучшенный feature extractor для OCR.
+    Под вход 96x110:
+      Input:   [B, C, 96, 110]
+      Stem ->  [B, stem, 96, 110]
+      Pool1 -> [B, stem, 48, 55]
+      Pool2 -> [B, ..., 24, 27]
+      Pool3 -> [B, ..., 12, 28]
+      Head1 -> [B, ..., 6, 28]
+      Head2 -> [B, ..., 3, 27]
+    """
+
+    def __init__(self, input_channel, output_channel=512, layers=(1, 2, 5, 3),
+                 block=BasicBlockSE, se_reduction=16, dropout=0.0):
+        super().__init__()
+
+        self.output_channel_block = [
+            output_channel // 4,   # 128 if output_channel=512
+            output_channel // 2,   # 256
+            output_channel,        # 512
+            output_channel         # 512
+        ]
+
+        stem_mid1 = max(output_channel // 16, 16)   # 32
+        stem_mid2 = max(output_channel // 8, 32)    # 64
+        self.inplanes = stem_mid2
+
+        # Stronger stem
+        self.stem = nn.Sequential(
+            ConvBNAct(input_channel, stem_mid1, kernel_size=3, stride=1, padding=1),
+            ConvBNAct(stem_mid1, stem_mid2, kernel_size=3, stride=1, padding=1),
+            ConvBNAct(stem_mid2, stem_mid2, kernel_size=3, stride=1, padding=1),
+        )
+
+        # Pooling strategy:
+        # squeeze H aggressively, preserve W carefully
+        self.maxpool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)                # 96x110 -> 48x55
+        self.layer1 = self._make_layer(block, self.output_channel_block[0], layers[0],
+                                       stride=1, se_reduction=se_reduction, dropout=dropout)
+        self.transition1 = ConvBNAct(self.output_channel_block[0], self.output_channel_block[0],
+                                     kernel_size=3, stride=1, padding=1)
+
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)                # 48x55 -> 24x27
+        self.layer2 = self._make_layer(block, self.output_channel_block[1], layers[1],
+                                       stride=1, se_reduction=se_reduction, dropout=dropout)
+        self.transition2 = ConvBNAct(self.output_channel_block[1], self.output_channel_block[1],
+                                     kernel_size=3, stride=1, padding=1)
+
+        # keep width almost intact
+        self.maxpool3 = nn.MaxPool2d(kernel_size=2, stride=(2, 1), padding=(0, 1))      # 24x27 -> 12x28
+        self.layer3 = self._make_layer(block, self.output_channel_block[2], layers[2],
+                                       stride=1, se_reduction=se_reduction, dropout=dropout)
+        self.transition3 = ConvBNAct(self.output_channel_block[2], self.output_channel_block[2],
+                                     kernel_size=3, stride=1, padding=1)
+
+        self.layer4 = self._make_layer(block, self.output_channel_block[3], layers[3],
+                                       stride=1, se_reduction=se_reduction, dropout=dropout)
+
+        # Better final head than original conv4_1 / conv4_2
+        self.head = nn.Sequential(
+            ConvBNAct(self.output_channel_block[3], self.output_channel_block[3],
+                      kernel_size=3, stride=(2, 1), padding=1),   # 12x28 -> 6x28
+            ConvBNAct(self.output_channel_block[3], self.output_channel_block[3],
+                      kernel_size=2, stride=(2, 1), padding=0),   # 6x28 -> 3x27
+        )
+
+        self._init_weights()
+
+    def _make_layer(self, block, planes, blocks, stride=1, se_reduction=16, dropout=0.0):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion),
+            )
+
+        layers = [
+            block(
+                self.inplanes,
+                planes,
+                stride=stride,
+                downsample=downsample,
+                se_reduction=se_reduction,
+                dropout=dropout
+            )
+        ]
+        self.inplanes = planes * block.expansion
+
+        for _ in range(1, blocks):
+            layers.append(
+                block(
+                    self.inplanes,
+                    planes,
+                    stride=1,
+                    downsample=None,
+                    se_reduction=se_reduction,
+                    dropout=dropout
+                )
+            )
+
+        return nn.Sequential(*layers)
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
+        # zero-init last BN in residual branch -> usually stabilizes residual training
+        for m in self.modules():
+            if isinstance(m, BasicBlockSE):
+                nn.init.zeros_(m.bn2.weight)
+
+    def forward(self, x):
+        x = self.stem(x)
+
+        x = self.maxpool1(x)
+        x = self.layer1(x)
+        x = self.transition1(x)
+
+        x = self.maxpool2(x)
+        x = self.layer2(x)
+        x = self.transition2(x)
+
+        x = self.maxpool3(x)
+        x = self.layer3(x)
+        x = self.transition3(x)
+
+        x = self.layer4(x)
+        x = self.head(x)
 
         return x

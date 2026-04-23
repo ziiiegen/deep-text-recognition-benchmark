@@ -274,7 +274,7 @@ if __name__ == '__main__':
     """ Model Architecture """
     parser.add_argument('--Transformation', type=str, required=True, help='Transformation stage. None|TPS')
     parser.add_argument('--FeatureExtraction', type=str, required=True,
-                        help='FeatureExtraction stage. VGG|RCNN|ResNet')
+                        help='FeatureExtraction stage. VGG|RCNN|ResNet|ResNetCE')
     parser.add_argument('--SequenceModeling', type=str, required=True, help='SequenceModeling stage. None|BiLSTM')
     parser.add_argument('--Prediction', type=str, required=True, help='Prediction stage. CTC|Attn')
     parser.add_argument('--num_fiducial', type=int, default=20, help='number of fiducial points of TPS-STN')
