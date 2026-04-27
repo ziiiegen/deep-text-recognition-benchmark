@@ -135,8 +135,9 @@ def train(opt):
     start_iter = 0
     if opt.saved_model != '':
         try:
-            start_iter = int(opt.saved_model.split('_')[-1].split('.')[0])
-            print(f'continue to train, start_iter: {start_iter}')
+            if opt.saved_model_iter == -1:
+                start_iter = int(opt.saved_model.split('_')[-1].split('.')[0])
+                print(f'continue to train, start_iter: {start_iter}')
         except:
             pass
 
@@ -197,6 +198,7 @@ def train(opt):
                 loss_avg.reset()
 
                 current_model_log = f'{"Current_accuracy":17s}: {current_accuracy:0.3f}, {"Current_norm_ED":17s}: {current_norm_ED:0.2f}'
+                torch.save(model.state_dict(), f'./saved_models/{opt.exp_name}/last.pth')
 
                 # keep best accuracy model (on valid dataset)
                 if current_accuracy > best_accuracy:
@@ -247,6 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_iter', type=int, default=300000, help='number of iterations to train for')
     parser.add_argument('--valInterval', type=int, default=2000, help='Interval between each validation')
     parser.add_argument('--saved_model', default='', help="path to model to continue training")
+    parser.add_argument('--saved_model_iter', type=int, default=-1, help="The iteration at which to start training the loaded model")
     parser.add_argument('--FT', action='store_true', help='whether to do fine-tuning')
     parser.add_argument('--adamW', action='store_true', help='Whether to use adam (default is Adadelta)')
     parser.add_argument('--lr', type=float, default=1, help='learning rate, default=1.0 for Adadelta')
